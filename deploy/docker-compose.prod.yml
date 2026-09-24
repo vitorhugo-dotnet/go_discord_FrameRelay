@@ -1,0 +1,8 @@
+services:
+  bot:
+    image: ${IMAGE:?IMAGE is required}
+    container_name: framerelay-discord-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+

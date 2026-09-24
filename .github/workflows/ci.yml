@@ -4,9 +4,20 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Publish the image and deploy it to the VPS
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: framerelay-discord-bot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   go:
@@ -25,3 +36,160 @@ jobs:
         run: go test -race ./...
       - name: Build
         run: go build ./cmd/framerelay-bot
+
+  publish_image:
+    name: Publish GHCR image
+    runs-on: ubuntu-latest
+    needs: go
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy == true)
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image tags
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/framerelay-discord-bot"
+          {
+            echo "image=$image:sha-${GITHUB_SHA}"
+            echo "tags<<EOF"
+            echo "$image:sha-${GITHUB_SHA}"
+            if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+              echo "$image:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=FrameRelay Discord Bot
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to VPS over SSH
+    runs-on: ubuntu-latest
+    needs: publish_image
+    if: >-
+      needs.publish_image.result == 'success' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && inputs.deploy == true)
+      )
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve SSH target
+        id: ssh_target
+        shell: bash
+        env:
+          RAW_VPS_HOST: ${{ secrets.VPS_HOST }}
+          RAW_VPS_PORT: ${{ secrets.VPS_PORT }}
+          RAW_VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          set -euo pipefail
+          host="${RAW_VPS_HOST:-}"
+          if [[ -z "$host" ]]; then
+            echo "::error::VPS_HOST secret is required. Use a host name or IP, not a URL."
+            exit 1
+          fi
+
+          host="${host#http://}"
+          host="${host#https://}"
+          host="${host#ssh://}"
+          host="${host#tcp://}"
+          host="${host#*@}"
+          host="${host%%/*}"
+          if [[ -z "$host" ]]; then
+            echo "::error::VPS_HOST resolved to an empty host. Check the VPS_HOST secret."
+            exit 1
+          fi
+          port="${RAW_VPS_PORT:-}"
+          if [[ "$host" =~ ^([^:]+):([0-9]+)$ ]]; then
+            host="${BASH_REMATCH[1]}"
+            if [[ -z "$port" ]]; then port="${BASH_REMATCH[2]}"; fi
+          fi
+          if [[ -z "$port" ]]; then port=22; fi
+          if [[ ! "$port" =~ ^[0-9]+$ ]]; then
+            echo "::error::VPS_PORT must be numeric."
+            exit 1
+          fi
+          app_dir="${RAW_VPS_APP_DIR:-/docker/frameRelayDiscordBot}"
+          if [[ "$app_dir" != /* ]]; then
+            echo "::error::VPS_APP_DIR must be an absolute path."
+            exit 1
+          fi
+          {
+            echo "host=$host"
+            echo "port=$port"
+            echo "app_dir=$app_dir"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Copy deployment files
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ steps.ssh_target.outputs.host }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ steps.ssh_target.outputs.port }}
+          source: deploy/docker-compose.prod.yml,deploy/deploy.sh
+          target: ${{ steps.ssh_target.outputs.app_dir }}
+          strip_components: 1
+          overwrite: true
+
+      - name: Run deployment
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE: ${{ needs.publish_image.outputs.image }}
+          APP_DIR: ${{ steps.ssh_target.outputs.app_dir }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ steps.ssh_target.outputs.host }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ steps.ssh_target.outputs.port }}
+          envs: IMAGE,APP_DIR,GHCR_USERNAME,GHCR_TOKEN
+          script: |
+            set -eu
+            DOCKER_CONFIG="$(mktemp -d)"
+            export DOCKER_CONFIG
+            cleanup() {
+              docker logout ghcr.io >/dev/null 2>&1 || true
+              rm -rf "$DOCKER_CONFIG"
+            }
+            trap cleanup EXIT
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+            cd "$APP_DIR"
+            chmod +x deploy.sh
+            ./deploy.sh
