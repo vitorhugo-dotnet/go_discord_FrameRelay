@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/relaycontrol"
 )
 
@@ -42,6 +44,49 @@ type CommandHandler struct {
 
 func NewCommandHandler(backend Backend, shareTTL, watchTTL time.Duration) *CommandHandler {
 	return &CommandHandler{backend: backend, shareTTL: shareTTL, watchTTL: watchTTL}
+}
+
+// ActivityBackend is optional so older integrations retain desktop links.
+type ActivityBackend interface {
+	CreateActivity(context.Context, relaycontrol.CreateActivityRequest) (relaycontrol.ActivityIntent, error)
+}
+
+// InitialResponse creates the intent before callback 12. When setup is unavailable,
+// it defers instead; the caller then runs Handle for the existing desktop link.
+func (h *CommandHandler) InitialResponse(ctx context.Context, interaction Interaction, respond func(context.Context, bool) error) (bool, error) {
+	if interaction.Subcommand == "watch" && interaction.GuildID != "" && interaction.ChannelID != "" {
+		if backend, ok := h.backend.(ActivityBackend); ok {
+			budget := 1500 * time.Millisecond
+			const callbackReserve = 500 * time.Millisecond
+			if deadline, ok := ctx.Deadline(); ok {
+				remaining := time.Until(deadline) - callbackReserve
+				if remaining < budget {
+					budget = remaining
+				}
+			}
+			if budget <= 0 {
+				return false, respond(ctx, false)
+			}
+			attempt, cancel := context.WithTimeout(ctx, budget)
+			intent, err := backend.CreateActivity(attempt, relaycontrol.CreateActivityRequest{
+				Code: interaction.Code, GuildID: interaction.GuildID, ChannelID: interaction.ChannelID,
+				RequestedByUserID: interaction.UserID, TTLSeconds: int(h.watchTTL.Seconds()),
+			})
+			cancel()
+			if err == nil && intent.ID != "" && intent.ExpiresAt.After(time.Now()) && ctx.Err() == nil {
+				// An unsuccessful callback may have reached Discord. Do not double acknowledge.
+				err := respond(ctx, true)
+				var rejected *rest.Error
+				// A definite invalid callback (e.g. Activities not enabled) was not acknowledged.
+				// Transport failures and Discord's already-acknowledged code are ambiguous.
+				if errors.As(err, &rejected) && rejected.Response != nil && rejected.Response.StatusCode == http.StatusBadRequest && rejected.Code != 40060 && ctx.Err() == nil {
+					return false, respond(ctx, false)
+				}
+				return true, err
+			}
+		}
+	}
+	return false, respond(ctx, false)
 }
 
 func (h *CommandHandler) Handle(ctx context.Context, interaction Interaction) Response {
@@ -103,7 +148,7 @@ func CommandDefinitions() []discord.ApplicationCommandCreate {
 			Options: []discord.ApplicationCommandOption{
 				discord.ApplicationCommandOptionSubCommand{Name: "share", Description: "Start a screen share from FrameRelay"},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "watch", Description: "Create a one-click link for an active FrameRelay share",
+					Name: "watch", Description: "Watch a FrameRelay share inside Discord",
 					Options: []discord.ApplicationCommandOption{
 						discord.ApplicationCommandOptionString{Name: "code", Description: "The six-character FrameRelay share code", Required: true, MinLength: intPointer(6), MaxLength: intPointer(12)},
 					},

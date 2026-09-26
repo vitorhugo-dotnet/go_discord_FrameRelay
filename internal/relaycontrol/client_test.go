@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCreateShareUsesServiceBearerAndReturnsOpaqueHTTPSLink(t *testing.T) {
@@ -40,6 +41,51 @@ func TestCreateShareUsesServiceBearerAndReturnsOpaqueHTTPSLink(t *testing.T) {
 	}
 	if result.ID != "launch-1" || !strings.HasPrefix(result.LaunchURL, "https://") {
 		t.Fatalf("unexpected response: %#v", result)
+	}
+}
+
+func TestCreateActivityUsesExactContractAndNormalizesCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/launch-intents/activity" || r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer service" {
+			t.Errorf("unexpected Activity request")
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 5 || body["code"] != "ABC123" || body["guildId"] != "guild" || body["channelId"] != "channel" || body["requestedByUserId"] != "user" || body["ttlSeconds"] != float64(300) {
+			t.Errorf("incorrect body: %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(ActivityIntent{ID: "intent", ExpiresAt: time.Now().Add(time.Minute)})
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, "service", server.Client())
+	intent, err := client.CreateActivity(context.Background(), CreateActivityRequest{Code: " abc123 ", GuildID: "guild", ChannelID: "channel", RequestedByUserID: "user", TTLSeconds: 300})
+	if err != nil || intent.ID != "intent" {
+		t.Fatalf("intent=%#v err=%v", intent, err)
+	}
+}
+
+func TestCreateActivityRejectsMissingIntent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{}`)) }))
+	defer server.Close()
+	_, err := NewClient(server.URL, "service", server.Client()).CreateActivity(context.Background(), CreateActivityRequest{})
+	if err == nil {
+		t.Fatal("empty success response must not allow Activity launch")
+	}
+}
+
+func TestGetStatusRequestsReadinessOnlyWithZeroWatchTTL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/launch-intents/intent-1" || r.URL.Query().Get("watchTtlSeconds") != "0" || r.Header.Get("Authorization") != "Bearer service" {
+			t.Errorf("unexpected readiness request: %s", r.URL)
+		}
+		_, _ = w.Write([]byte(`{"id":"intent-1","status":"session_ready","sessionId":"session-1","expiresAt":"2026-09-26T12:30:00Z"}`))
+	}))
+	defer server.Close()
+	status, err := NewClient(server.URL, "service", server.Client()).GetStatus(context.Background(), "intent-1", 0)
+	if err != nil || status.Status != "session_ready" || status.WatchLaunchURL != "" {
+		t.Fatalf("readiness response: %#v %v", status, err)
 	}
 }
 

@@ -51,6 +51,29 @@ type publishedRequest struct {
 	MessageID string `json:"messageId,omitempty"`
 }
 
+type CreateActivityRequest struct {
+	Code              string `json:"code"`
+	GuildID           string `json:"guildId"`
+	ChannelID         string `json:"channelId"`
+	RequestedByUserID string `json:"requestedByUserId"`
+	TTLSeconds        int    `json:"ttlSeconds"`
+}
+
+type ActivityIntent struct {
+	ID        string    `json:"id"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+func (c *Client) CreateActivity(ctx context.Context, request CreateActivityRequest) (ActivityIntent, error) {
+	request.Code = strings.ToUpper(strings.TrimSpace(request.Code))
+	var response ActivityIntent
+	err := c.doJSON(ctx, http.MethodPost, "/api/launch-intents/activity", request, &response)
+	if err == nil && (response.ID == "" || !response.ExpiresAt.After(time.Now())) {
+		err = fmt.Errorf("RelayControl returned an invalid Activity intent")
+	}
+	return response, err
+}
+
 type Client struct {
 	baseURL string
 	token   string
