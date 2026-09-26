@@ -1,0 +1,9 @@
+{
+  "name": "framerelay-discord-activity",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "dev": "vite --host 127.0.0.1", "build": "tsc --noEmit && vite build", "test:routing": "node --experimental-strip-types --test tests/publisher-routing.test.mjs" },
+  "dependencies": { "@discord/embedded-app-sdk": "2.5.0" },
+  "devDependencies": { "typescript": "7.0.2", "vite": "8.3.1" }
+}

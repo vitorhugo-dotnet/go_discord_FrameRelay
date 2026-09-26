@@ -32,10 +32,6 @@ func (a *Adapter) OnCommand(event *events.ApplicationCommandInteractionCreate) {
 	if data.CommandName() != "framerelay" {
 		return
 	}
-	if err := event.DeferCreateMessage(true); err != nil {
-		a.logger.Warn("discord interaction defer failed", "operation", "defer_interaction")
-		return
-	}
 	interaction := Interaction{UserID: event.User().ID.String()}
 	if data.SubCommandName != nil {
 		interaction.Subcommand = *data.SubCommandName
@@ -46,6 +42,22 @@ func (a *Adapter) OnCommand(event *events.ApplicationCommandInteractionCreate) {
 	interaction.ChannelID = event.Channel().ID().String()
 	if interaction.Subcommand == "watch" {
 		interaction.Code = data.String("code")
+	}
+	// Include gateway transit time in the initial callback deadline.
+	initialCtx, initialCancel := context.WithDeadline(context.Background(), event.ID().Time().Add(2800*time.Millisecond))
+	launched, initialErr := a.handler.InitialResponse(initialCtx, interaction, func(ctx context.Context, launch bool) error {
+		if launch {
+			return event.LaunchActivity(rest.WithCtx(ctx))
+		}
+		return event.DeferCreateMessage(true, rest.WithCtx(ctx))
+	})
+	initialCancel()
+	if initialErr != nil {
+		a.logger.Warn("discord initial response failed", "operation", "initial_interaction")
+		return
+	}
+	if launched {
+		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
@@ -67,7 +79,7 @@ func (a *Adapter) PublishReady(ctx context.Context, intent relaycontrol.PendingI
 	digest := sha256.Sum256([]byte(intent.ID))
 	nonce := hex.EncodeToString(digest[:12])
 	message := discord.NewMessageCreate().
-		WithContent("FrameRelay is ready to watch.").
+		WithContent("FrameRelay is ready to watch. Use /framerelay watch with the host's share code to watch inside Discord, or open the desktop viewer below.").
 		WithNonce(nonce).
 		WithEnforceNonce(true).
 		AddActionRow(discord.NewLinkButton("Watch in FrameRelay", status.WatchLaunchURL))
