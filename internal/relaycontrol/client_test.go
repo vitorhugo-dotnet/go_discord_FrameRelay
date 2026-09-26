@@ -75,6 +75,20 @@ func TestCreateActivityRejectsMissingIntent(t *testing.T) {
 	}
 }
 
+func TestGetStatusRequestsReadinessOnlyWithZeroWatchTTL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/launch-intents/intent-1" || r.URL.Query().Get("watchTtlSeconds") != "0" || r.Header.Get("Authorization") != "Bearer service" {
+			t.Errorf("unexpected readiness request: %s", r.URL)
+		}
+		_, _ = w.Write([]byte(`{"id":"intent-1","status":"session_ready","sessionId":"session-1","expiresAt":"2026-09-26T12:30:00Z"}`))
+	}))
+	defer server.Close()
+	status, err := NewClient(server.URL, "service", server.Client()).GetStatus(context.Background(), "intent-1", 0)
+	if err != nil || status.Status != "session_ready" || status.WatchLaunchURL != "" {
+		t.Fatalf("readiness response: %#v %v", status, err)
+	}
+}
+
 func TestErrorsExposeOnlySafeCodeAndStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

@@ -71,23 +71,26 @@ func (a *Adapter) OnCommand(event *events.ApplicationCommandInteractionCreate) {
 	}
 }
 
-func (a *Adapter) PublishReady(ctx context.Context, intent relaycontrol.PendingIntent, status relaycontrol.IntentStatus) (string, error) {
+func (a *Adapter) PublishReady(ctx context.Context, intent relaycontrol.PendingIntent, _ relaycontrol.IntentStatus) (string, error) {
 	channelNumber, err := strconv.ParseUint(intent.ChannelID, 10, 64)
 	if err != nil {
 		return "", fmt.Errorf("pending intent channel id is invalid")
 	}
-	digest := sha256.Sum256([]byte(intent.ID))
-	nonce := hex.EncodeToString(digest[:12])
-	message := discord.NewMessageCreate().
-		WithContent("FrameRelay is ready to watch. Use /framerelay watch with the host's share code to watch inside Discord, or open the desktop viewer below.").
-		WithNonce(nonce).
-		WithEnforceNonce(true).
-		AddActionRow(discord.NewLinkButton("Watch in FrameRelay", status.WatchLaunchURL))
+	message := readyMessage(intent.ID)
 	posted, err := a.client.Rest.CreateMessage(snowflake.ID(channelNumber), message, rest.WithCtx(ctx))
 	if err != nil {
 		return "", fmt.Errorf("publish ready message")
 	}
 	return posted.ID.String(), nil
+}
+
+func readyMessage(intentID string) discord.MessageCreate {
+	digest := sha256.Sum256([]byte(intentID))
+	nonce := hex.EncodeToString(digest[:12])
+	return discord.NewMessageCreate().
+		WithContent("FrameRelay is ready to watch. Each participant should run `/framerelay watch code:<host-code>` with the host's share code in this voice channel's chat to watch inside Discord. If Activity launch is unavailable, your command provides a personal desktop watch link.").
+		WithNonce(nonce).
+		WithEnforceNonce(true)
 }
 
 func RegisterCommands(ctx context.Context, client *bot.Client, applicationID, guildID string) error {

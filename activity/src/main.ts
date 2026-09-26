@@ -20,6 +20,7 @@ class UserError extends Error {}
 const messages: Record<string, string> = {
  activity_instance_busy: 'This Activity is already watching another live share. Close it or wait for that share to end, then run /framerelay watch again.',
  session_full: 'This share has reached its viewer limit.',
+ viewer_limit: 'This share has reached its viewer limit.',
  session_unavailable: 'The share has ended or is unavailable.',
  invalid_code: 'The share code is invalid or has ended.'
 };

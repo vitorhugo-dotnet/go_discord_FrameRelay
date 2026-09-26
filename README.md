@@ -1,13 +1,13 @@
 # FrameRelay Discord bot
 
-This standalone Go service connects Discord slash commands to RelayControl launch intents. The desktop client owns screen capture and streaming. The bot launches a Discord Activity viewer or creates desktop launch links and publishes a watch button when a share is ready.
+This standalone Go service connects Discord slash commands to RelayControl launch intents. The desktop client owns screen capture and streaming. The bot launches a Discord Activity viewer or creates personal desktop launch links and publishes a readiness announcement when a share is ready.
 
 ## Commands
 
 - `/framerelay share` responds privately with a one-click button that opens the FrameRelay desktop app. The owner starts capture and streaming in that app.
 - `/framerelay watch code:<code>` creates a session/context-bound intent and responds with Discord `LAUNCH_ACTIVITY` (callback 12) before any defer. Run it in the voice channel's chat where the Activity will launch. If the Activity API is unavailable or Discord definitively rejects the launch callback, it defers and returns the existing private desktop watch button.
 
-The bot also recovers ready-but-unpublished shares after restart. It uses a stable Discord message nonce so a retry after a successful post does not duplicate the announcement.
+The bot also recovers ready-but-unpublished shares after restart. It polls status with `watchTtlSeconds=0`, caches readiness without minting a watch capability, and uses a stable Discord message nonce so a retry after a successful post does not duplicate the announcement. The public announcement asks every participant to run `/framerelay watch` with the host's code; it contains no shared single-use link. Each command invocation can provide its own desktop fallback link.
 
 ## Configuration
 

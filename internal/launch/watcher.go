@@ -24,16 +24,15 @@ type Watcher struct {
 	backend   Backend
 	publisher Publisher
 	interval  time.Duration
-	watchTTL  time.Duration
 	now       func() time.Time
 	logger    *slog.Logger
 	cacheMu   sync.Mutex
 	ready     map[string]relaycontrol.IntentStatus
 }
 
-func NewWatcher(backend Backend, publisher Publisher, interval, watchTTL time.Duration, logger *slog.Logger) *Watcher {
+func NewWatcher(backend Backend, publisher Publisher, interval, _ time.Duration, logger *slog.Logger) *Watcher {
 	return &Watcher{
-		backend: backend, publisher: publisher, interval: interval, watchTTL: watchTTL,
+		backend: backend, publisher: publisher, interval: interval,
 		now: time.Now, logger: logger, ready: make(map[string]relaycontrol.IntentStatus),
 	}
 }
@@ -85,7 +84,7 @@ func (w *Watcher) PollOnce(ctx context.Context) error {
 			}
 			continue
 		}
-		if status.Status != "session_ready" || status.WatchLaunchURL == "" {
+		if status.Status != "session_ready" {
 			continue
 		}
 		messageID, err := w.publisher.PublishReady(ctx, intent, status)
@@ -113,11 +112,12 @@ func (w *Watcher) getStatus(ctx context.Context, intentID string) (relaycontrol.
 	delete(w.ready, intentID)
 	w.cacheMu.Unlock()
 
-	status, err := w.backend.GetStatus(ctx, intentID, int(w.watchTTL.Seconds()))
+	// Poll readiness only. Each user's watch command creates their own capability.
+	status, err := w.backend.GetStatus(ctx, intentID, 0)
 	if err != nil {
 		return status, err
 	}
-	if status.Status == "session_ready" && status.WatchLaunchURL != "" && status.ExpiresAt.After(w.now()) {
+	if status.Status == "session_ready" && status.ExpiresAt.After(w.now()) {
 		w.cacheMu.Lock()
 		w.ready[intentID] = status
 		w.cacheMu.Unlock()
