@@ -1,0 +1,92 @@
+name: Activity Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - activity/**
+      - .github/workflows/activity-cloudflare.yml
+  pull_request:
+    paths:
+      - activity/**
+      - .github/workflows/activity-cloudflare.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: activity-cloudflare-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Activity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: activity/package-lock.json
+      - name: Check Discord application ID
+        env:
+          APPLICATION_ID: ${{ vars.DISCORD_APPLICATION_ID }}
+        run: |
+          if [[ ! "$APPLICATION_ID" =~ ^[0-9]{17,20}$ ]]; then
+            echo '::error::Set the DISCORD_APPLICATION_ID repository variable to the MediaRelay application ID.'
+            exit 1
+          fi
+      - name: Install dependencies
+        working-directory: activity
+        run: npm ci
+      - name: Build static site
+        working-directory: activity
+        env:
+          VITE_DISCORD_APPLICATION_ID: ${{ vars.DISCORD_APPLICATION_ID }}
+          VITE_API_BASE: /relay
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: activity-dist
+          path: activity/dist
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy Activity
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: Cloudflare Pages
+      url: ${{ steps.cloudflare.outputs.deployment-url }}
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: activity-dist
+          path: activity/dist
+      - name: Check Cloudflare credentials
+        env:
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [[ -z "$ACCOUNT_ID" || -z "$API_TOKEN" ]]; then
+            echo '::error::Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN repository secrets.'
+            exit 1
+          fi
+      - name: Deploy static site
+        id: cloudflare
+        uses: cloudflare/wrangler-action@v4
+        with:
+          wranglerVersion: '4'
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          workingDirectory: activity
+          command: pages deploy dist --project-name=framerelay-activity --branch=${{ github.ref_name }}
