@@ -75,6 +75,44 @@ func TestCreateActivityRejectsMissingIntent(t *testing.T) {
 	}
 }
 
+func TestCreateActivityFromReadyBindsClickerWithoutShareCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/launch-intents/ready-1/activity" || r.Header.Get("Authorization") != "Bearer service" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if len(body) != 4 || body["requestedByUserId"] != "clicker" || body["guildId"] != "guild" || body["channelId"] != "voice" {
+			t.Errorf("incorrect binding: %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(ActivityIntent{ID: "click-intent", ExpiresAt: time.Now().Add(time.Minute)})
+	}))
+	defer server.Close()
+	intent, err := NewClient(server.URL, "service", server.Client()).CreateActivityFromReady(context.Background(), "ready-1", CreateReadyActivityRequest{GuildID: "guild", ChannelID: "voice", RequestedByUserID: "clicker", TTLSeconds: 120})
+	if err != nil || intent.ID != "click-intent" {
+		t.Fatalf("intent=%#v err=%v", intent, err)
+	}
+}
+
+func TestCreateWatchFromReadyReturnsPersonalDesktopLink(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/launch-intents/ready-1/watch" {
+			t.Errorf("unexpected route: %s", r.URL)
+		}
+		var body CreateReadyActivityRequest
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.RequestedByUserID != "clicker" {
+			t.Errorf("wrong viewer: %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(WatchLaunch{LaunchURL: "https://relay.example/open/watch/personal", ExpiresAt: time.Now().Add(time.Minute)})
+	}))
+	defer server.Close()
+	watch, err := NewClient(server.URL, "service", server.Client()).CreateWatchFromReady(context.Background(), "ready-1", CreateReadyActivityRequest{GuildID: "guild", ChannelID: "voice", RequestedByUserID: "clicker", TTLSeconds: 120})
+	if err != nil || watch.LaunchURL == "" {
+		t.Fatalf("watch=%#v err=%v", watch, err)
+	}
+}
+
 func TestGetStatusRequestsReadinessOnlyWithZeroWatchTTL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/launch-intents/intent-1" || r.URL.Query().Get("watchTtlSeconds") != "0" || r.Header.Get("Authorization") != "Bearer service" {

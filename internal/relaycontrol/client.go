@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -62,6 +63,28 @@ type CreateActivityRequest struct {
 type ActivityIntent struct {
 	ID        string    `json:"id"`
 	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+type CreateReadyActivityRequest struct {
+	GuildID           string `json:"guildId"`
+	ChannelID         string `json:"channelId"`
+	RequestedByUserID string `json:"requestedByUserId"`
+	TTLSeconds        int    `json:"ttlSeconds"`
+}
+
+func (c *Client) CreateActivityFromReady(ctx context.Context, readyIntentID string, request CreateReadyActivityRequest) (ActivityIntent, error) {
+	var response ActivityIntent
+	err := c.doJSON(ctx, http.MethodPost, "/api/launch-intents/"+url.PathEscape(readyIntentID)+"/activity", request, &response)
+	if err == nil && (response.ID == "" || !response.ExpiresAt.After(time.Now())) {
+		err = fmt.Errorf("RelayControl returned an invalid Activity intent")
+	}
+	return response, err
+}
+
+func (c *Client) CreateWatchFromReady(ctx context.Context, readyIntentID string, request CreateReadyActivityRequest) (WatchLaunch, error) {
+	var response WatchLaunch
+	err := c.doJSON(ctx, http.MethodPost, "/api/launch-intents/"+url.PathEscape(readyIntentID)+"/watch", request, &response)
+	return response, err
 }
 
 func (c *Client) CreateActivity(ctx context.Context, request CreateActivityRequest) (ActivityIntent, error) {

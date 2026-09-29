@@ -18,11 +18,12 @@ type Backend interface {
 }
 
 type Interaction struct {
-	Subcommand string
-	GuildID    string
-	ChannelID  string
-	UserID     string
-	Code       string
+	Subcommand    string
+	GuildID       string
+	ChannelID     string
+	UserID        string
+	Code          string
+	ReadyIntentID string
 }
 
 type LinkButton struct {
@@ -51,11 +52,37 @@ type ActivityBackend interface {
 	CreateActivity(context.Context, relaycontrol.CreateActivityRequest) (relaycontrol.ActivityIntent, error)
 }
 
+type ReadyActivityBackend interface {
+	CreateActivityFromReady(context.Context, string, relaycontrol.CreateReadyActivityRequest) (relaycontrol.ActivityIntent, error)
+}
+
+type ReadyWatchBackend interface {
+	CreateWatchFromReady(context.Context, string, relaycontrol.CreateReadyActivityRequest) (relaycontrol.WatchLaunch, error)
+}
+
+func (h *CommandHandler) HandleReadyFallback(ctx context.Context, interaction Interaction) Response {
+	backend, ok := h.backend.(ReadyWatchBackend)
+	if !ok || interaction.ReadyIntentID == "" || interaction.GuildID == "" || interaction.ChannelID == "" {
+		return Response{Content: "Run `/framerelay watch code:<host-code>` for a personal desktop watch link.", Ephemeral: true}
+	}
+	watch, err := backend.CreateWatchFromReady(ctx, interaction.ReadyIntentID, relaycontrol.CreateReadyActivityRequest{
+		GuildID: interaction.GuildID, ChannelID: interaction.ChannelID,
+		RequestedByUserID: interaction.UserID, TTLSeconds: int(h.watchTTL.Seconds()),
+	})
+	if err != nil || watch.LaunchURL == "" {
+		return Response{Content: "This share is unavailable. Run `/framerelay watch code:<host-code>` to try again.", Ephemeral: true}
+	}
+	return Response{Content: "Discord viewing is unavailable. Open your personal FrameRelay desktop link instead.", Ephemeral: true,
+		Button: &LinkButton{Label: "Watch in FrameRelay", URL: watch.LaunchURL}}
+}
+
 // InitialResponse creates the intent before callback 12. When setup is unavailable,
 // it defers instead; the caller then runs Handle for the existing desktop link.
 func (h *CommandHandler) InitialResponse(ctx context.Context, interaction Interaction, respond func(context.Context, bool) error) (bool, error) {
-	if interaction.Subcommand == "watch" && interaction.GuildID != "" && interaction.ChannelID != "" {
-		if backend, ok := h.backend.(ActivityBackend); ok {
+	if (interaction.Subcommand == "watch" || interaction.ReadyIntentID != "") && interaction.GuildID != "" && interaction.ChannelID != "" {
+		_, codeSupported := h.backend.(ActivityBackend)
+		_, readySupported := h.backend.(ReadyActivityBackend)
+		if (interaction.ReadyIntentID != "" && readySupported) || (interaction.ReadyIntentID == "" && codeSupported) {
 			budget := 1500 * time.Millisecond
 			const callbackReserve = 500 * time.Millisecond
 			if deadline, ok := ctx.Deadline(); ok {
@@ -68,10 +95,19 @@ func (h *CommandHandler) InitialResponse(ctx context.Context, interaction Intera
 				return false, respond(ctx, false)
 			}
 			attempt, cancel := context.WithTimeout(ctx, budget)
-			intent, err := backend.CreateActivity(attempt, relaycontrol.CreateActivityRequest{
-				Code: interaction.Code, GuildID: interaction.GuildID, ChannelID: interaction.ChannelID,
-				RequestedByUserID: interaction.UserID, TTLSeconds: int(h.watchTTL.Seconds()),
-			})
+			var intent relaycontrol.ActivityIntent
+			var err error
+			if interaction.ReadyIntentID != "" {
+				intent, err = h.backend.(ReadyActivityBackend).CreateActivityFromReady(attempt, interaction.ReadyIntentID, relaycontrol.CreateReadyActivityRequest{
+					GuildID: interaction.GuildID, ChannelID: interaction.ChannelID,
+					RequestedByUserID: interaction.UserID, TTLSeconds: 120,
+				})
+			} else {
+				intent, err = h.backend.(ActivityBackend).CreateActivity(attempt, relaycontrol.CreateActivityRequest{
+					Code: interaction.Code, GuildID: interaction.GuildID, ChannelID: interaction.ChannelID,
+					RequestedByUserID: interaction.UserID, TTLSeconds: int(h.watchTTL.Seconds()),
+				})
+			}
 			cancel()
 			if err == nil && intent.ID != "" && intent.ExpiresAt.After(time.Now()) && ctx.Err() == nil {
 				// An unsuccessful callback may have reached Discord. Do not double acknowledge.

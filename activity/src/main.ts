@@ -67,6 +67,7 @@ async function start() {
   const pc = peer = new RTCPeerConnection({ iceServers: admission.iceServers });
   const routing = new PublisherRouting();
   const candidates: RTCIceCandidateInit[] = [];
+  let negotiationId: string | undefined;
   const media = new MediaStream(); video.srcObject = media;
   video.onloadeddata = () => {
    if (current === generation && video.videoWidth > 0) { status.textContent = 'Watching'; clearTimeout(timeout); }
@@ -79,7 +80,7 @@ async function start() {
   const send = (type: string, payload: unknown, to = routing.publisher) => {
    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, messageId: crypto.randomUUID(), sessionId: admission.sessionId, to, payload }));
   };
-  pc.onicecandidate = event => { if (event.candidate && routing.publisher) send('webrtc.ice_candidate', event.candidate.toJSON()); };
+  pc.onicecandidate = event => { if (event.candidate && routing.publisher) send('webrtc.ice_candidate', { ...event.candidate.toJSON(), negotiationId }); };
   pc.onconnectionstatechange = () => {
    if (pc.connectionState === 'connected' && video.videoWidth === 0) status.textContent = 'Connected; waiting for decoded video…';
    if (pc.connectionState === 'failed') fail('Media connection failed. Check the publisher connection or TURN configuration, then reconnect.');
@@ -91,11 +92,19 @@ async function start() {
     const incoming = JSON.parse(event.data);
     if (incoming.type === 'session.ended') { fail('The share has ended.'); return; }
     if (incoming.type === 'error') throw new UserError('Signaling admission or routing failed. Run /framerelay watch again.');
+    if (incoming.type === 'participant.disconnected' && incoming.from === routing.publisher) {
+     status.textContent = 'Publisher disconnected. Waiting for reconnection…';
+     return;
+    }
+    if (incoming.type === 'participant.reconnected' && incoming.from === routing.publisher) {
+     status.textContent = 'Publisher reconnected. Waiting for video…';
+    }
     for (const message of routing.accept(incoming)) {
     if (message.type === 'publisher.ready') { send('viewer.ready', {}); continue; }
     if (message.type === 'webrtc.offer') {
      const sdp = message.payload?.sdp;
      if (typeof sdp !== 'string' || !/H264\/90000/i.test(sdp) || !/opus\/48000/i.test(sdp)) throw new UserError('The publisher offer is incompatible with H.264 video and Opus audio.');
+     negotiationId = typeof message.payload?.negotiationId === 'string' ? message.payload.negotiationId : undefined;
      await pc.setRemoteDescription({ type: 'offer', sdp });
      for (const transceiver of pc.getTransceivers()) {
       const kind = transceiver.receiver.track.kind as 'audio' | 'video';
@@ -103,7 +112,7 @@ async function start() {
      }
      for (const candidate of candidates.splice(0)) await pc.addIceCandidate(candidate);
      const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
-     send('webrtc.answer', { type: 'answer', sdp: answer.sdp });
+     send('webrtc.answer', { type: 'answer', sdp: answer.sdp, negotiationId });
     } else if (message.type === 'webrtc.ice_candidate' && typeof message.payload?.candidate === 'string') {
      const candidate = message.payload as RTCIceCandidateInit;
      if (pc.remoteDescription) await pc.addIceCandidate(candidate);

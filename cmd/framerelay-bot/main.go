@@ -51,6 +51,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	handler := discordbot.NewCommandHandler(backend, cfg.ShareIntentTTL, cfg.WatchIntentTTL)
 	adapter := discordbot.NewAdapter(client, handler, logger)
 	client.AddEventListeners(bot.NewListenerFunc(adapter.OnCommand))
+	client.AddEventListeners(bot.NewListenerFunc(adapter.OnComponent))
 
 	registerCtx, cancelRegister := context.WithTimeout(ctx, 15*time.Second)
 	err = discordbot.RegisterCommands(registerCtx, client, cfg.ApplicationID, cfg.GuildID)

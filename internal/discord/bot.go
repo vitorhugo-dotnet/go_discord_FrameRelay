@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/bot"
@@ -71,6 +73,56 @@ func (a *Adapter) OnCommand(event *events.ApplicationCommandInteractionCreate) {
 	}
 }
 
+var readyIntentPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func readyIntentFromCustomID(customID string) string {
+	id, ok := strings.CutPrefix(customID, "framerelay:watch:")
+	if !ok || !readyIntentPattern.MatchString(id) {
+		return ""
+	}
+	return id
+}
+
+func (a *Adapter) OnComponent(event *events.ComponentInteractionCreate) {
+	if event.Data.Type() != discord.ComponentTypeButton {
+		return
+	}
+	readyID := readyIntentFromCustomID(event.ButtonInteractionData().CustomID())
+	if readyID == "" {
+		return
+	}
+	interaction := Interaction{ReadyIntentID: readyID, UserID: event.User().ID.String()}
+	if guildID := event.GuildID(); guildID != nil {
+		interaction.GuildID = guildID.String()
+	}
+	interaction.ChannelID = event.Channel().ID().String()
+	initialCtx, cancel := context.WithDeadline(context.Background(), event.ID().Time().Add(2800*time.Millisecond))
+	launched, err := a.handler.InitialResponse(initialCtx, interaction, func(ctx context.Context, launch bool) error {
+		if launch {
+			return event.LaunchActivity(rest.WithCtx(ctx))
+		}
+		return event.DeferCreateMessage(true, rest.WithCtx(ctx))
+	})
+	cancel()
+	if err != nil {
+		a.logger.Warn("discord ready button response failed", "operation", "ready_button")
+		return
+	}
+	if launched {
+		return
+	}
+	ctx, done := context.WithTimeout(context.Background(), 5*time.Second)
+	defer done()
+	fallback := a.handler.HandleReadyFallback(ctx, interaction)
+	message := discord.NewMessageUpdate().WithContent(fallback.Content)
+	if fallback.Button != nil {
+		message = message.AddActionRow(discord.NewLinkButton(fallback.Button.Label, fallback.Button.URL))
+	}
+	if _, err := a.client.Rest.UpdateInteractionResponse(event.ApplicationID(), event.Token(), message, rest.WithCtx(ctx)); err != nil {
+		a.logger.Warn("discord ready button fallback failed", "operation", "ready_button_fallback")
+	}
+}
+
 func (a *Adapter) PublishReady(ctx context.Context, intent relaycontrol.PendingIntent, _ relaycontrol.IntentStatus) (string, error) {
 	channelNumber, err := strconv.ParseUint(intent.ChannelID, 10, 64)
 	if err != nil {
@@ -88,9 +140,10 @@ func readyMessage(intentID string) discord.MessageCreate {
 	digest := sha256.Sum256([]byte(intentID))
 	nonce := hex.EncodeToString(digest[:12])
 	return discord.NewMessageCreate().
-		WithContent("FrameRelay is ready to watch. Each participant should run `/framerelay watch code:<host-code>` with the host's share code in this voice channel's chat to watch inside Discord. If Activity launch is unavailable, your command provides a personal desktop watch link.").
+		WithContent("FrameRelay is ready to watch. Select **Assistir no Discord** to open the Activity with your own authorization. You can also run `/framerelay watch code:<host-code>` in this voice channel with the host's share code. If Activity launch is unavailable, you will receive a personal desktop watch link.").
 		WithNonce(nonce).
-		WithEnforceNonce(true)
+		WithEnforceNonce(true).
+		AddActionRow(discord.NewPrimaryButton("Assistir no Discord", "framerelay:watch:"+intentID))
 }
 
 func RegisterCommands(ctx context.Context, client *bot.Client, applicationID, guildID string) error {

@@ -34,10 +34,47 @@ func TestShareCommandCreatesEphemeralLaunchButton(t *testing.T) {
 
 type activityBackend struct {
 	fakeBackend
-	request  relaycontrol.CreateActivityRequest
-	activity relaycontrol.ActivityIntent
-	err      error
-	wait     bool
+	request           relaycontrol.CreateActivityRequest
+	readyRequest      relaycontrol.CreateReadyActivityRequest
+	readyID           string
+	watchReadyID      string
+	watchReadyRequest relaycontrol.CreateReadyActivityRequest
+	watchReady        relaycontrol.WatchLaunch
+	activity          relaycontrol.ActivityIntent
+	err               error
+	wait              bool
+}
+
+func (f *activityBackend) CreateWatchFromReady(_ context.Context, id string, request relaycontrol.CreateReadyActivityRequest) (relaycontrol.WatchLaunch, error) {
+	f.watchReadyID, f.watchReadyRequest = id, request
+	return f.watchReady, f.err
+}
+
+func TestReadyButtonFallbackCreatesPersonalDesktopLink(t *testing.T) {
+	backend := &activityBackend{watchReady: relaycontrol.WatchLaunch{LaunchURL: "https://relay.example/open/watch/personal", ExpiresAt: time.Now().Add(time.Minute)}}
+	response := NewCommandHandler(backend, time.Minute, 2*time.Minute).HandleReadyFallback(context.Background(), Interaction{ReadyIntentID: "ready-1", GuildID: "guild", ChannelID: "voice", UserID: "clicker"})
+	if !response.Ephemeral || response.Button == nil || response.Button.URL != backend.watchReady.LaunchURL || backend.watchReadyID != "ready-1" || backend.watchReadyRequest.RequestedByUserID != "clicker" {
+		t.Fatalf("fallback=%#v backend=%#v", response, backend)
+	}
+}
+
+func (f *activityBackend) CreateActivityFromReady(_ context.Context, id string, request relaycontrol.CreateReadyActivityRequest) (relaycontrol.ActivityIntent, error) {
+	f.readyID, f.readyRequest = id, request
+	return f.activity, f.err
+}
+
+func TestReadyButtonCreatesIntentForClickingUserBeforeLaunch(t *testing.T) {
+	backend := &activityBackend{activity: relaycontrol.ActivityIntent{ID: "click-intent", ExpiresAt: time.Now().Add(time.Minute)}}
+	handler := NewCommandHandler(backend, time.Minute, 2*time.Minute)
+	launched, err := handler.InitialResponse(context.Background(), Interaction{ReadyIntentID: "ready-1", GuildID: "guild", ChannelID: "voice", UserID: "clicker"}, func(_ context.Context, launch bool) error {
+		if !launch || backend.readyID != "ready-1" || backend.readyRequest.RequestedByUserID != "clicker" || backend.readyRequest.ChannelID != "voice" || backend.readyRequest.TTLSeconds != 120 {
+			t.Fatal("ready click must bind clicker before launch")
+		}
+		return nil
+	})
+	if err != nil || !launched {
+		t.Fatalf("launched=%v err=%v", launched, err)
+	}
 }
 
 func (f *activityBackend) CreateActivity(ctx context.Context, request relaycontrol.CreateActivityRequest) (relaycontrol.ActivityIntent, error) {

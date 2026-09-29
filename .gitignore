@@ -5,3 +5,5 @@
 /dist/
 /coverage.out
 /coverage.html
+/activity/node_modules/
+/activity/dist/
