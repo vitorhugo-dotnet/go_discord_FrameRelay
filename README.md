@@ -4,7 +4,7 @@ This standalone Go service connects Discord slash commands to RelayControl launc
 
 ## Commands
 
-- `/framerelay share` responds privately with a one-click button that opens the FrameRelay desktop app. The owner starts capture and streaming in that app.
+- `/framerelay share` responds privately with a one-click button that opens the FrameRelay desktop app. It works in server channels and personal chats. The owner starts capture and streaming in that app.
 - `/framerelay watch code:<code>` creates a session/context-bound intent and responds with Discord `LAUNCH_ACTIVITY` (callback 12) before any defer. Run it in the voice channel's chat where the Activity will launch. If the Activity API is unavailable or Discord definitively rejects the launch callback, it defers and returns the existing private desktop watch button.
 
 The bot also recovers ready-but-unpublished shares after restart. It polls status with `watchTtlSeconds=0`, caches readiness without minting a watch capability, and uses a stable Discord message nonce so a retry after a successful post does not duplicate the announcement. The public announcement includes **Assistir no Discord**. Each click asks RelayControl for an Activity intent bound to that participant, guild, and channel. If the launch is unavailable, the bot replies privately with a fresh personal desktop watch link. The announcement contains no shared watch credential. `/framerelay watch` remains available with the host's code.
@@ -23,7 +23,7 @@ The optional `SHARE_INTENT_TTL`, `WATCH_INTENT_TTL`, `INTENT_POLL_INTERVAL`, `HT
 
 The Activity intent API attempt is capped at 1.5 seconds and shortened to reserve 500 milliseconds for the initial callback when gateway delivery consumed time. If that reserve is all that remains, the bot immediately defers for the desktop fallback. Initial Discord responses use the interaction creation timestamp plus 2.8 seconds, leaving margin inside Discord's 3-second deadline. An ambiguous network failure after sending callback 12 cannot safely be acknowledged again; retry the command in that case. No Activity success is reported without a valid unexpired intent. See [Activity hosting and setup](activity/README.md).
 
-The bot requests no privileged Discord Gateway intents. Invite it with the `bot` and `applications.commands` scopes and grant it permission to view and send messages in channels where `/framerelay share` is used.
+The bot requests no privileged Discord Gateway intents. Install it in a server with the `bot` and `applications.commands` scopes, or authorize it for personal use with the `applications.commands` scope. In servers, grant it permission to view and send messages in channels where `/framerelay share` is used.
 
 ## Run locally
 

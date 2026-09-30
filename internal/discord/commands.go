@@ -126,8 +126,8 @@ func (h *CommandHandler) InitialResponse(ctx context.Context, interaction Intera
 }
 
 func (h *CommandHandler) Handle(ctx context.Context, interaction Interaction) Response {
-	if interaction.GuildID == "" || interaction.ChannelID == "" {
-		return Response{Content: "Use this command in a Discord server channel.", Ephemeral: true}
+	if interaction.ChannelID == "" {
+		return Response{Content: "This command needs a Discord channel.", Ephemeral: true}
 	}
 	switch interaction.Subcommand {
 	case "share":
@@ -181,6 +181,15 @@ func CommandDefinitions() []discord.ApplicationCommandCreate {
 		discord.SlashCommandCreate{
 			Name:        "framerelay",
 			Description: "Start or watch a FrameRelay screen share",
+			IntegrationTypes: []discord.ApplicationIntegrationType{
+				discord.ApplicationIntegrationTypeGuildInstall,
+				discord.ApplicationIntegrationTypeUserInstall,
+			},
+			Contexts: []discord.InteractionContextType{
+				discord.InteractionContextTypeGuild,
+				discord.InteractionContextTypeBotDM,
+				discord.InteractionContextTypePrivateChannel,
+			},
 			Options: []discord.ApplicationCommandOption{
 				discord.ApplicationCommandOptionSubCommand{Name: "share", Description: "Start a screen share from FrameRelay"},
 				discord.ApplicationCommandOptionSubCommand{
