@@ -29,7 +29,7 @@ func main() {
 	}
 	logger := observability.NewLogger(os.Stdout, cfg.LogLevel)
 	if err := run(cfg, logger); err != nil && !errors.Is(err, context.Canceled) {
-		logger.Error("FrameRelay bot stopped", "operation", "run")
+		logger.Error("FrameRelay bot stopped", "operation", "run", "error", err)
 		os.Exit(1)
 	}
 }
@@ -53,14 +53,6 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	client.AddEventListeners(bot.NewListenerFunc(adapter.OnCommand))
 	client.AddEventListeners(bot.NewListenerFunc(adapter.OnComponent))
 
-	// Discord may ask us to wait tens of seconds before updating global commands.
-	// Keep startup alive long enough for the REST rate limiter to retry.
-	registerCtx, cancelRegister := context.WithTimeout(ctx, 90*time.Second)
-	err = discordbot.RegisterCommands(registerCtx, client, cfg.ApplicationID, cfg.GuildID)
-	cancelRegister()
-	if err != nil {
-		return errors.New("register Discord slash command")
-	}
 	if err := client.OpenGateway(ctx); err != nil {
 		return errors.New("open Discord Gateway")
 	}
@@ -72,6 +64,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			serverErrors <- err
 		}
 	}()
+	go syncCommands(ctx, client, cfg.ApplicationID, cfg.GuildID, logger)
 
 	watcher := launch.NewWatcher(backend, adapter, cfg.IntentPollInterval, cfg.WatchIntentTTL, logger)
 	watcherErrors := make(chan error, 1)
@@ -97,6 +90,30 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		return errors.New("shutdown health server")
 	}
 	return nil
+}
+
+func syncCommands(ctx context.Context, client *bot.Client, applicationID, guildID string, logger *slog.Logger) {
+	for ctx.Err() == nil {
+		registerCtx, cancelRegister := context.WithTimeout(ctx, 90*time.Second)
+		err := discordbot.RegisterCommands(registerCtx, client, applicationID, guildID)
+		cancelRegister()
+		if err == nil {
+			logger.Info("Discord slash commands synchronized", "operation", "register_commands")
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		logger.Warn("Discord slash command registration failed; retrying", "operation", "register_commands", "error", err)
+
+		timer := time.NewTimer(time.Minute)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
 }
 
 func monitorReadiness(ctx context.Context, client *bot.Client, backend *relaycontrol.Client, readiness *health.Readiness, interval time.Duration) {
