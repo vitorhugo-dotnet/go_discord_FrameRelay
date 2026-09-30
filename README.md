@@ -52,10 +52,11 @@ The `CI` workflow runs formatting, vet, race-enabled tests, and a Go build on pu
 Before the first deploy:
 
 1. Install Docker Engine and the Docker Compose plugin on the VPS, and allow the SSH user to run Docker.
-2. Create `/docker/frameRelayDiscordBot/.env` from the repository's `.env.example`. Set `DISCORD_TOKEN`, `DISCORD_APPLICATION_ID`, `RELAYCONTROL_BASE_URL`, and `RELAYCONTROL_SERVICE_TOKEN`; keep this file only on the VPS.
-3. Add these repository Actions secrets: `VPS_HOST`, `VPS_USER`, and `VPS_SSH_KEY`. `VPS_PORT` is optional and defaults to `22`. `VPS_APP_DIR` is optional and defaults to `/docker/frameRelayDiscordBot`; use this bot-specific directory rather than the RelayControl application directory.
+2. Ensure the shared external Docker network `infra_network` exists on the VPS.
+3. Create `/docker/frameRelayDiscordBot/.env` from the repository's `.env.example`. Set `DISCORD_TOKEN`, `DISCORD_APPLICATION_ID`, `RELAYCONTROL_BASE_URL`, and `RELAYCONTROL_SERVICE_TOKEN`; keep this file only on the VPS.
+4. Add these repository Actions secrets: `VPS_HOST`, `VPS_USER`, and `VPS_SSH_KEY`. `VPS_PORT` is optional and defaults to `22`. `VPS_APP_DIR` is optional and defaults to `/docker/frameRelayDiscordBot`; use this bot-specific directory rather than the RelayControl application directory.
 
-The deploy job uses its short-lived `GITHUB_TOKEN` to pull the GHCR image and removes the temporary Docker credentials when it finishes. Discord and RelayControl credentials stay in the VPS `.env` and are not sent to GitHub Actions.
+The deploy job uses its short-lived `GITHUB_TOKEN` to pull the exact commit-tagged GHCR image and removes the temporary Docker credentials when it finishes. The Compose file defaults to `latest` for manual deployments. Discord and RelayControl credentials stay in the VPS `.env` and are not sent to GitHub Actions.
 
 ## Checks
 

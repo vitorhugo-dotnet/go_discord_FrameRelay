@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/docker/frameRelayDiscordBot}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
-IMAGE="${IMAGE:?IMAGE is required}"
+IMAGE="${IMAGE:-ghcr.io/vitorhugo-dotnet/framerelay-discord-bot:latest}"
 
 cd "$APP_DIR"
 
@@ -35,7 +35,7 @@ docker compose -f "$COMPOSE_FILE" pull bot
 docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
 
 echo "Waiting for the bot container health check"
-for attempt in $(seq 1 30); do
+for attempt in $(seq 1 75); do
   status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' framerelay-discord-bot 2>/dev/null || true)"
   if [[ "$status" == healthy || "$status" == running ]]; then
     echo "Bot container is $status"

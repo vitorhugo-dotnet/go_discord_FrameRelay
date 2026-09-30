@@ -1,8 +1,14 @@
 services:
   bot:
-    image: ${IMAGE:?IMAGE is required}
+    image: ${IMAGE:-ghcr.io/vitorhugo-dotnet/framerelay-discord-bot:latest}
     container_name: framerelay-discord-bot
     restart: unless-stopped
     env_file:
       - .env
+    networks:
+      - infra_network
 
+networks:
+  infra_network:
+    external: true
+    name: infra_network

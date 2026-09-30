@@ -53,7 +53,9 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	client.AddEventListeners(bot.NewListenerFunc(adapter.OnCommand))
 	client.AddEventListeners(bot.NewListenerFunc(adapter.OnComponent))
 
-	registerCtx, cancelRegister := context.WithTimeout(ctx, 15*time.Second)
+	// Discord may ask us to wait tens of seconds before updating global commands.
+	// Keep startup alive long enough for the REST rate limiter to retry.
+	registerCtx, cancelRegister := context.WithTimeout(ctx, 90*time.Second)
 	err = discordbot.RegisterCommands(registerCtx, client, cfg.ApplicationID, cfg.GuildID)
 	cancelRegister()
 	if err != nil {
