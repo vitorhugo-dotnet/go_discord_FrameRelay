@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         working-directory: activity
         run: npm ci
+      - name: Check Activity error diagnostics
+        working-directory: activity
+        run: npm run test:errors
       - name: Build static site
         working-directory: activity
         env:

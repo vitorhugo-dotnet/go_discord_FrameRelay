@@ -1,5 +1,6 @@
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 import { PublisherRouting } from './publisher-routing';
+import { safeErrorSummary } from './error-summary';
 import './style.css';
 
 const video = document.querySelector<HTMLVideoElement>('#screen')!;
@@ -135,7 +136,7 @@ async function start() {
   ws.onclose = () => fail('Disconnected or viewer authorization expired. Reconnect to continue.');
   timeout = setTimeout(() => fail('No playable media arrived. Check the publisher and TURN connection, then reconnect.'), 30000);
  } catch (error) {
-  if (current === generation) { identity = undefined; fail(error instanceof UserError ? error.message : `Failed during ${stage}. Run /framerelay watch again.`); }
+  if (current === generation) { identity = undefined; fail(error instanceof UserError ? error.message : `Failed during ${stage} (${safeErrorSummary(error)}). Run /framerelay watch again.`); }
  }
 }
 connect.onclick = () => void start();
