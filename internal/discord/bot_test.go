@@ -1,10 +1,52 @@
 package discordbot
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
+	"github.com/disgoorg/snowflake/v2"
 )
+
+type commandRegistrationRest struct {
+	rest.Rest
+	created   int
+	bulk      bool
+	createErr error
+}
+
+func (r *commandRegistrationRest) SetGlobalCommands(_ snowflake.ID, _ []discord.ApplicationCommandCreate, _ ...rest.RequestOpt) ([]discord.ApplicationCommand, error) {
+	r.bulk = true
+	return nil, errors.New("50240: Entry Point command cannot be removed by bulk update")
+}
+
+func (r *commandRegistrationRest) CreateGlobalCommand(_ snowflake.ID, _ discord.ApplicationCommandCreate, _ ...rest.RequestOpt) (discord.ApplicationCommand, error) {
+	r.created++
+	return nil, r.createErr
+}
+
+func TestRegisterCommandsPreservesActivityEntryPoint(t *testing.T) {
+	r := &commandRegistrationRest{}
+	if err := RegisterCommands(context.Background(), &bot.Client{Rest: r}, "1552826675438288996", ""); err != nil {
+		t.Fatal(err)
+	}
+	if r.bulk || r.created != len(CommandDefinitions()) {
+		t.Fatalf("bulk=%v created=%d", r.bulk, r.created)
+	}
+}
+
+func TestRegisterCommandsReturnsUpsertFailure(t *testing.T) {
+	want := errors.New("registration unavailable")
+	r := &commandRegistrationRest{createErr: want}
+	if err := RegisterCommands(context.Background(), &bot.Client{Rest: r}, "1552826675438288996", ""); !errors.Is(err, want) {
+		t.Fatalf("error=%v want=%v", err, want)
+	}
+}
 
 func TestPublicReadyMessageContainsNoSharedCapabilityAndRetriesSameNonce(t *testing.T) {
 	first := readyMessage("intent-1")

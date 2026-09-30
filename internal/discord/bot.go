@@ -160,6 +160,12 @@ func RegisterCommands(ctx context.Context, client *bot.Client, applicationID, gu
 		_, err = client.Rest.SetGuildCommands(snowflake.ID(appNumber), snowflake.ID(guildNumber), commands, rest.WithCtx(ctx))
 		return err
 	}
-	_, err = client.Rest.SetGlobalCommands(snowflake.ID(appNumber), commands, rest.WithCtx(ctx))
-	return err
+	// Upsert only our slash commands. A bulk overwrite would remove Discord's
+	// Activity Entry Point command, which Discord rejects with error 50240.
+	for _, command := range commands {
+		if _, err = client.Rest.CreateGlobalCommand(snowflake.ID(appNumber), command, rest.WithCtx(ctx)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
