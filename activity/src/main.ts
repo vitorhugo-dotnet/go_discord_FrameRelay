@@ -31,7 +31,9 @@ async function request<T>(path: string, body?: unknown, bearer?: string): Promis
  });
  if (!response.ok) {
   const error = await response.json().catch(() => ({}));
-  throw new UserError(messages[error.code] || 'Authorization or session admission failed. Run /framerelay watch again.');
+  const message = messages[error.code];
+  if (message) throw new UserError(message);
+  throw new Error(`HTTP ${response.status}`);
  }
  return response.json();
 }
