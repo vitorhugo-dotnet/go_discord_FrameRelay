@@ -52,18 +52,24 @@ function codecs(kind: 'audio' | 'video', mime: string) {
 async function start() {
  stop(); connect.disabled = true;
  const current = generation;
+ let stage = 'media capability check';
  try {
   codecs('video', 'video/h264'); codecs('audio', 'audio/opus');
   status.textContent = 'Authorizing with Discord…';
   if (!identity || Date.parse(identity.expiresAt) <= Date.now() + 5000) {
+   stage = 'Discord authorization';
    const { code } = await sdk.commands.authorize({ client_id: applicationId, response_type: 'code', state: crypto.randomUUID(), prompt: 'none', scope: ['identify'] });
+   stage = 'RelayControl identity exchange';
    identity = await request('/api/discord/activity/authorize', { code, instanceId: sdk.instanceId });
   }
   if (current !== generation) return;
   status.textContent = 'Joining the shared screen…';
+  stage = 'viewer grant';
   const grant = await request<{ grant: string }>('/api/discord/activity/viewer-grants', undefined, identity!.accessToken);
+  stage = 'viewer admission';
   const admission = await request<{ sessionId: string; participantId: string; signalingToken: string; expiresAt: string; iceServers: RTCIceServer[] }>('/api/discord/activity/viewer-grants/redeem', { grant: grant.grant }, identity!.accessToken);
   if (current !== generation) return;
+  stage = 'WebRTC peer connection';
   const pc = peer = new RTCPeerConnection({ iceServers: admission.iceServers });
   const routing = new PublisherRouting();
   const candidates: RTCIceCandidateInit[] = [];
@@ -76,6 +82,7 @@ async function start() {
   const url = new URL(`${apiBase}/ws/signaling`, location.href);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('sessionId', admission.sessionId);
+  stage = 'signaling WebSocket';
   const ws = socket = new WebSocket(url, ['framerelay', `token.${admission.signalingToken}`]);
   const send = (type: string, payload: unknown, to = routing.publisher) => {
    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, messageId: crypto.randomUUID(), sessionId: admission.sessionId, to, payload }));
@@ -126,7 +133,7 @@ async function start() {
   ws.onclose = () => fail('Disconnected or viewer authorization expired. Reconnect to continue.');
   timeout = setTimeout(() => fail('No playable media arrived. Check the publisher and TURN connection, then reconnect.'), 30000);
  } catch (error) {
-  if (current === generation) { identity = undefined; fail(error instanceof UserError ? error.message : 'Discord authorization or connection failed. Run /framerelay watch again.'); }
+  if (current === generation) { identity = undefined; fail(error instanceof UserError ? error.message : `Failed during ${stage}. Run /framerelay watch again.`); }
  }
 }
 connect.onclick = () => void start();
