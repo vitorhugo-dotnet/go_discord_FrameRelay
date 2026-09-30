@@ -13,6 +13,14 @@ npm run build
 
 Serve the generated `dist/` directory from a reachable HTTPS origin. The bot container does not serve this client. For development `npm run dev` starts Vite on loopback; use an HTTPS development tunnel and configure the corresponding URL mappings.
 
+### Cloudflare Pages deployment
+
+The [Activity workflow](../.github/workflows/activity-cloudflare.yml) builds this directory and deploys `dist/` to the `framerelay-activity` Cloudflare Pages project. It creates a GitHub deployment under **Cloudflare Pages**, so successful publishes appear in the repository's **Deployments** sidebar. Pull requests build the site; pushes to `main` deploy production. `workflow_dispatch` deploys the selected branch as a Pages preview.
+
+Set the repository variable `DISCORD_APPLICATION_ID` to the public application ID used by the bot. Set repository secrets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`; the token needs Cloudflare Pages edit permission for the account. The workflow keeps `VITE_API_BASE=/relay` and uses Node 22. Do not put Discord bot or API credentials in frontend build variables.
+
+The production site is `https://framerelay-activity.pages.dev/`. In the Discord Developer Portal, set Activity URL Mapping `/` to `framerelay-activity.pages.dev` and `/relay` to the public HTTPS RelayControl API hostname. Mapping targets omit the scheme. The API target must support both `/api/discord/activity/*` and `/ws/signaling` through Discord's proxy. Enable Activities after both mappings are saved.
+
 ## Discord and API setup
 
 1. In the same Discord application's Developer Portal, enable Activities/Embedded App support and configure the Activity launch URL.
