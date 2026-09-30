@@ -167,5 +167,26 @@ func RegisterCommands(ctx context.Context, client *bot.Client, applicationID, gu
 			return err
 		}
 	}
+	registered, err := client.Rest.GetGlobalCommands(snowflake.ID(appNumber), false, rest.WithCtx(ctx))
+	if err != nil {
+		return err
+	}
+	for _, existing := range registered {
+		if existing.Type() == discord.ApplicationCommandTypePrimaryEntryPoint {
+			continue
+		}
+		declared := false
+		for _, command := range commands {
+			if existing.Type() == command.Type() && existing.Name() == command.CommandName() {
+				declared = true
+				break
+			}
+		}
+		if !declared {
+			if err = client.Rest.DeleteGlobalCommand(snowflake.ID(appNumber), existing.ID(), rest.WithCtx(ctx)); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }

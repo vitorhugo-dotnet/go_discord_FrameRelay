@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -18,6 +19,32 @@ type commandRegistrationRest struct {
 	created   int
 	bulk      bool
 	createErr error
+	commands  []discord.ApplicationCommand
+	deleted   []snowflake.ID
+	listErr   error
+	deleteErr error
+	listed    bool
+}
+
+type registeredCommand struct {
+	discord.ApplicationCommand
+	id          snowflake.ID
+	name        string
+	commandType discord.ApplicationCommandType
+}
+
+func (c registeredCommand) ID() snowflake.ID                     { return c.id }
+func (c registeredCommand) Name() string                         { return c.name }
+func (c registeredCommand) Type() discord.ApplicationCommandType { return c.commandType }
+
+func (r *commandRegistrationRest) GetGlobalCommands(_ snowflake.ID, _ bool, _ ...rest.RequestOpt) ([]discord.ApplicationCommand, error) {
+	r.listed = true
+	return r.commands, r.listErr
+}
+
+func (r *commandRegistrationRest) DeleteGlobalCommand(_ snowflake.ID, id snowflake.ID, _ ...rest.RequestOpt) error {
+	r.deleted = append(r.deleted, id)
+	return r.deleteErr
 }
 
 func (r *commandRegistrationRest) SetGlobalCommands(_ snowflake.ID, _ []discord.ApplicationCommandCreate, _ ...rest.RequestOpt) ([]discord.ApplicationCommand, error) {
@@ -45,6 +72,46 @@ func TestRegisterCommandsReturnsUpsertFailure(t *testing.T) {
 	r := &commandRegistrationRest{createErr: want}
 	if err := RegisterCommands(context.Background(), &bot.Client{Rest: r}, "1552826675438288996", ""); !errors.Is(err, want) {
 		t.Fatalf("error=%v want=%v", err, want)
+	}
+	if r.listed || len(r.deleted) != 0 {
+		t.Fatal("must not prune after failed upsert")
+	}
+}
+
+func TestRegisterCommandsPrunesObsoleteCommandsAndPreservesEntryPoint(t *testing.T) {
+	r := &commandRegistrationRest{commands: []discord.ApplicationCommand{
+		registeredCommand{id: 1, name: "framerelay", commandType: discord.ApplicationCommandTypeSlash},
+		registeredCommand{id: 2, name: "old-framerelay", commandType: discord.ApplicationCommandTypeSlash},
+		registeredCommand{id: 3, name: "Launch", commandType: discord.ApplicationCommandTypePrimaryEntryPoint},
+		registeredCommand{id: 4, name: "framerelay", commandType: discord.ApplicationCommandTypeUser},
+	}}
+	if err := RegisterCommands(context.Background(), &bot.Client{Rest: r}, "1552826675438288996", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(r.deleted, []snowflake.ID{2, 4}) {
+		t.Fatalf("deleted=%v want=[2 4]", r.deleted)
+	}
+}
+
+func TestRegisterCommandsReturnsPruningFailure(t *testing.T) {
+	want := errors.New("pruning unavailable")
+	for _, phase := range []string{"list", "delete"} {
+		t.Run(phase, func(t *testing.T) {
+			r := &commandRegistrationRest{commands: []discord.ApplicationCommand{
+				registeredCommand{id: 2, name: "old-framerelay", commandType: discord.ApplicationCommandTypeSlash},
+			}}
+			if phase == "list" {
+				r.listErr = want
+			} else {
+				r.deleteErr = want
+			}
+			if err := RegisterCommands(context.Background(), &bot.Client{Rest: r}, "1552826675438288996", ""); !errors.Is(err, want) {
+				t.Fatalf("error=%v want=%v", err, want)
+			}
+			if phase == "list" && len(r.deleted) != 0 {
+				t.Fatal("deleted commands after failed listing")
+			}
+		})
 	}
 }
 
