@@ -1,10 +1,15 @@
 export class AudioPlayback {
  readonly context: AudioContext;
+ private gain: GainNode;
  private sources = new Set<AudioBufferSourceNode>();
  private lastEndUs: number | undefined;
- constructor() { this.context = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' }); }
+ constructor() {
+  this.context = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+  this.gain = this.context.createGain(); this.gain.connect(this.context.destination);
+ }
  get running() { return this.context.state === 'running'; }
  async resume() { await this.context.resume(); }
+ setVolume(volume: number) { this.gain.gain.setTargetAtTime(Math.min(1, Math.max(0, volume)), this.context.currentTime, 0.015); }
  push(data: AudioData, when: number) {
   try {
    if (!this.running || when < this.context.currentTime - 0.15) return;
@@ -18,7 +23,7 @@ export class AudioPlayback {
     buffer.copyToChannel(samples, planeIndex);
    }
    this.lastEndUs = data.timestamp + data.numberOfFrames / data.sampleRate * 1000000;
-   const source = this.context.createBufferSource(); source.buffer = buffer; source.connect(this.context.destination);
+   const source = this.context.createBufferSource(); source.buffer = buffer; source.connect(this.gain);
    this.sources.add(source); source.onended = () => { this.sources.delete(source); source.disconnect(); };
    source.start(Math.max(when, this.context.currentTime));
   } finally { data.close(); }
