@@ -44,6 +44,9 @@ jobs:
       - name: Check Activity error diagnostics
         working-directory: activity
         run: npm run test:errors
+      - name: Check media protocol and lifecycle
+        working-directory: activity
+        run: npm run test:media
       - name: Build static site
         working-directory: activity
         env:

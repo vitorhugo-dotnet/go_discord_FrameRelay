@@ -42,3 +42,15 @@ Signaling envelopes use `{type,messageId,sessionId,to,payload}` and server-authe
 The browser may require the **Play video and audio** button to satisfy autoplay restrictions. Reconnect is explicit after disconnection, session end or credential expiry. A 30-second timeout reports missing decoded video, including an audio-only connection. No tokens, SDP, ICE addresses or media are written to application logs.
 
 The focused Go tests check API body/auth, callback order, invalid/missing intents, timeout fallback (including delayed gateway delivery) and definitive versus ambiguous Discord callback failures. `npm run test:routing` checks publisher-role admission and bounded buffering using Node's TypeScript stripping support (Node 22.15+). `npm run build` type-checks and builds the frontend. Real SDK authorization, Developer Portal launch callback acceptance, joining participants, decoded video/audio, autoplay and TURN transport still require a configured Discord application and live publisher. The web client uses native video-track RTCP feedback; it does not invent a target FPS from observed browser decode FPS for FrameRelay's optional receiver-statistics message.
+
+## WebSocket + WebCodecs
+
+Activity playback uses H.264 Annex-B and raw Opus packets over `framerelay-media-v1`, then VideoDecoder to canvas and AudioDecoder to Web Audio. No Activity RTC peer or TURN credentials are created. The desktop RTC path is independent.
+
+Both opt-ins are required: API `FeatureManagement__DiscordWebSocketMedia=true` (default false), desktop process `FRAMERELAY_WEBSOCKET_MEDIA_ENABLED=true` (default false). API DiscordActivity and ScreenShare switches must remain true. A feature-off admission gives a clear desktop-viewer message.
+
+Discord URL Mapping must include `/relay` to RelayControl and `/media` to the separate media host. `/media/ws/media` must resolve to the forwarder's `/ws/media` with WebSocket Upgrade support. Keep a single forwarder instance. Set `MediaRelay__PublicBaseUrl` for desktop uploads; the Activity uses its mapped origin instead of that direct host. `MediaRelay__ServiceToken` belongs only to API and forwarder, never to the bot or static bundle.
+
+`npm run test:media` exercises binary vectors, configuration support, recovery, disposal and admission release. For native codec verification, start the API repository's `tests/SonicRelay.MediaRelay.BrowserFixture` on 5174 and Vite on 5173; open `/tests/browser-media-fixture.html`, click Run, and expect PASS with decoded green pixels and nonzero PCM energy. An optional existing Chromium debugging instance on port 9227 can run `node tests/run-browser-media-fixture.mjs`; it creates/closes a dedicated fixture tab and supplies a real button click. No external test package is needed.
+
+This browser fixture does not prove Discord runtime support. Live rollout still needs `/framerelay watch`, audible synchronized audio, late viewers, reconnect, session end, flag off and a concurrent desktop RTC viewer. Unsupported WebCodecs must show the desktop-viewer message. Use the audio Play button if Discord requires a gesture.
