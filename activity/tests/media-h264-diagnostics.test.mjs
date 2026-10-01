@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { summarizeH264AccessUnit } from '../src/h264-diagnostics.ts';
+import { maxMessageSize } from '../src/media-protocol.ts';
 
 test('summarizes Annex-B keyframe structure without exposing encoded bytes', () => {
  const accessUnit = Uint8Array.from([
@@ -36,4 +37,14 @@ test('identifies missing Annex-B start codes and parameter sets', () => {
  assert.match(summary, /Annex-B no start code/);
  assert.match(summary, /SPS\/PPS no/);
  assert.match(summary, /IDR no/);
+});
+
+test('summarizes an 8 MiB access unit with bounded detail retention', () => {
+ const payload = new Uint8Array(maxMessageSize - 40);
+ for (let offset = 0; offset < payload.length; offset += 4) payload.set([0, 0, 1, 0x65], offset);
+
+ const summary = summarizeH264AccessUnit(payload, 'avc1.42c028', true);
+
+ assert.match(summary, /NALs IDR:1(?:,IDR:1){11},\.\.\.\+2097130/);
+ assert.ok(summary.length < 512);
 });
