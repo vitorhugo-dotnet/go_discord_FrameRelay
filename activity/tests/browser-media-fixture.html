@@ -1,0 +1,67 @@
+<!doctype html><meta charset="utf-8"><title>FrameRelay media fixture</title>
+<button id="run">Run codec playback fixture</button><canvas id="screen" width="64" height="64"></canvas><pre id="result">Waiting for gesture</pre>
+<script type="module">
+import { MediaPlayer } from '/src/media-player.ts';
+import { MediaClient } from '/src/media-client.ts';
+import { AudioPlayback } from '/src/audio-playback.ts';
+import { encodeMediaMessage } from '/src/media-protocol.ts';
+const result = document.querySelector('#result');
+document.querySelector('#run').onclick = async () => {
+ const budget = AbortSignal.timeout(10000); let player, client, upload; let videoFrames = 0, audioFrames = 0, energy = 0;
+ try {
+  result.textContent = 'Running'; MediaPlayer.checkAPIs();
+  const context = new AudioContext({ sampleRate: 48000 }); await context.resume();
+  const originalPush = AudioPlayback.prototype.push;
+  AudioPlayback.prototype.push = function(data, when) {
+   const samples = new Float32Array(data.numberOfFrames); data.copyTo(samples, { planeIndex: 0, format: 'f32-planar' });
+   energy += samples.reduce((total, value) => total + value * value, 0); audioFrames++;
+   return originalPush.call(this, data, when);
+  };
+  const packets = []; const videoPackets = [];
+  const videoConfig = { codec: 'avc1.42e01e', width: 64, height: 64, bitrate: 200000, framerate: 30, avc: { format: 'annexb' }, latencyMode: 'realtime' };
+  if (!(await VideoEncoder.isConfigSupported(videoConfig)).supported) throw new Error('H264 fixture encoder unavailable');
+  const encoder = new VideoEncoder({ output(chunk) { const data = new Uint8Array(chunk.byteLength); chunk.copyTo(data); videoPackets.push({ data, timestamp: chunk.timestamp, key: chunk.type === 'key' }); }, error(error) { throw error; } });
+  encoder.configure(videoConfig);
+  const source = new OffscreenCanvas(64, 64); const paint = source.getContext('2d');
+  for (let i = 0; i < 3; i++) { paint.fillStyle = i === 0 ? '#ff0000' : '#00ff00'; paint.fillRect(0, 0, 64, 64);
+   const frame = new VideoFrame(source, { timestamp: 1000000 + i * 33333, duration: 33333 }); encoder.encode(frame, { keyFrame: i === 0 }); frame.close(); }
+  await encoder.flush(); encoder.close();
+  const audioEncoder = new AudioEncoder({ output(chunk) { const data = new Uint8Array(chunk.byteLength); chunk.copyTo(data); packets.push({ data, timestamp: chunk.timestamp, duration: chunk.duration }); }, error(error) { throw error; } });
+  const audioConfig = { codec: 'opus', sampleRate: 48000, numberOfChannels: 2, bitrate: 96000, opus: { format: 'opus' } };
+  if (!(await AudioEncoder.isConfigSupported(audioConfig)).supported) throw new Error('Opus fixture encoder unavailable');
+  audioEncoder.configure(audioConfig);
+  for (let packet = 0; packet < 8; packet++) {
+   const pcm = new Float32Array(1920); for (let i = 0; i < 960; i++) pcm[i] = pcm[960 + i] = 0.2 * Math.sin((packet * 960 + i) / 48000 * 440 * 2 * Math.PI);
+   const data = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: 960, numberOfChannels: 2, timestamp: 1000000 + packet * 20000, data: pcm });
+   audioEncoder.encode(data); data.close();
+  }
+  await audioEncoder.flush(); audioEncoder.close();
+  const first = videoPackets[0].data; let codec;
+  for (let i = 0; i + 7 < first.length; i++) if (first[i] === 0 && first[i+1] === 0 && first[i+2] === 0 && first[i+3] === 1 && (first[i+4] & 31) === 7)
+   codec = 'avc1.' + [...first.slice(i+5, i+8)].map(x => x.toString(16).padStart(2, '0')).join('');
+  if (!codec) throw new Error('Fixture SPS missing');
+  upload = new WebSocket('ws://127.0.0.1:5174/ws/media', 'framerelay-media-v1'); upload.binaryType = 'arraybuffer';
+  await new Promise((resolve, reject) => { upload.onopen = resolve; upload.onerror = reject; budget.addEventListener('abort', reject, { once: true }); });
+  upload.send(JSON.stringify({ grant: 'u'.repeat(64) }));
+  const configured = new Promise(resolve => { upload.onmessage = resolve; });
+  let sequence = 0; const send = (type, payload, timestampUs = 0, durationUs = 0, flags = 0) => upload.send(encodeMediaMessage({ type, flags, generation: 1, sequence: sequence++, timestampUs, durationUs, payload }).buffer);
+  send(1, new TextEncoder().encode(JSON.stringify({ video: { codec, width: 64, height: 64, format: 'annexb' }, audio: { codec: 'opus', sampleRate: 48000, channels: 2 } })));
+  await configured;
+  let resolveConfig; const configuredPlayer = new Promise(resolve => resolveConfig = resolve);
+  player = new MediaPlayer(document.querySelector('#screen'), () => client?.requestKeyframe(), () => videoFrames++);
+  const accept = player.accept.bind(player); player.accept = async message => { await accept(message); if (message.type === 1) resolveConfig(); };
+  client = new MediaClient(async () => {}, error => { result.textContent = 'FAIL: ' + error.message; });
+  await client.connect({ grant: 'v'.repeat(64) }, player, budget, 'http://127.0.0.1:5174/ws/media');
+  await configuredPlayer; await player.resumeAudio();
+  send(2, videoPackets[0].data, videoPackets[0].timestamp, 33333, 1);
+  for (const packet of packets) send(3, packet.data, packet.timestamp, packet.duration || 20000);
+  for (const frame of videoPackets.slice(1)) send(2, frame.data, frame.timestamp, 33333);
+  await new Promise(resolve => setTimeout(resolve, 500));
+  const pixel = [...document.querySelector('#screen').getContext('2d').getImageData(32, 32, 1, 1).data];
+  if (videoFrames < 2 || audioFrames < 2 || energy < 0.001 || pixel[1] < 150 || pixel[0] > 100) throw new Error(JSON.stringify({ videoFrames, audioFrames, energy, pixel }));
+  result.textContent = 'PASS ' + JSON.stringify({ videoFrames, audioFrames, energy, pixel, codec, websocketForwarder: true });
+  await context.close();
+ } catch (error) { result.textContent = 'FAIL ' + (error?.message || String(error)); }
+ finally { await client?.close(); player?.stop(); upload?.close(); }
+};
+</script>
