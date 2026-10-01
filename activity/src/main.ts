@@ -79,7 +79,7 @@ async function start() {
   stage = 'media WebSocket';
   await media.connect(admission, view, controller.signal);
   if (current !== generation) return;
-  timeout = setTimeout(() => fail('No playable media arrived. Check that the publisher WebSocket option and server media flag are enabled.'), 30000);
+  timeout = setTimeout(() => fail(view.startupFailure()), 30000);
  } catch (error) {
   if (current === generation) { identity = undefined; fail(error instanceof UserError ? error.message : `Failed during ${stage} (${safeErrorSummary(error)}). Run /framerelay watch again.`); }
  }

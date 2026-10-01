@@ -39,3 +39,24 @@ test('closed decoder is recreated and recovers on a fresh keyframe', async () =>
  p.video.state = 'closed'; outputs.error(new Error('decode failed'));
  await p.accept(message(2, 2, 1)); assert.equal(decoded.length, 2); p.stop();
 });
+
+test('startup failure distinguishes missing transport from decoder failure', async () => {
+ const p = player(); assert.match(p.startupFailure(), /No media configuration/);
+ await p.accept(message(1, 0)); assert.match(p.startupFailure(), /No video packets/);
+ await p.accept(message(2, 1, 1));
+ const error = new Error('private decoder message'); error.name = 'EncodingError';
+ outputs.error(error);
+ const failure = p.startupFailure();
+ assert.match(failure, /received 1 video packets/);
+ assert.match(failure, /EncodingError/);
+ assert.doesNotMatch(failure, /private decoder message/);
+ p.stop();
+});
+test('startup failure identifies decoded frames discarded by playback timing', async () => {
+ const p = player(); await p.accept(message(1, 0)); await p.accept(message(2, 1, 1));
+ let released = 0; outputs.output({timestamp: 1000000, close() { released++; }});
+ outputs.output({timestamp: 0, close() { released++; }});
+ assert.match(p.startupFailure(), /decoded 2 frames/);
+ assert.match(p.startupFailure(), /discarded 1/);
+ p.stop(); assert.equal(released, 2);
+});
