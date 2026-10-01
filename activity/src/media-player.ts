@@ -1,6 +1,8 @@
 import { decodeConfiguration } from './media-protocol.ts';
 import type { MediaMessage, MediaConfiguration } from './media-protocol.ts';
 import { AudioPlayback } from './audio-playback.ts';
+import { safeErrorSummary } from './error-summary.ts';
+import { summarizeH264AccessUnit } from './h264-diagnostics.ts';
 
 export class MediaPlayer {
  private configurations = 0;
@@ -30,6 +32,7 @@ export class MediaPlayer {
  private frames: { frame: VideoFrame; timer: ReturnType<typeof setTimeout> }[] = [];
  private firstVideoLogged = false;
  private firstDecodedLogged = false;
+ private loggedKeyFrameGeneration = -1;
  private onDiagnostic: (level: 'info' | 'warn' | 'error', event: string, detail?: string) => void;
  constructor(canvas: HTMLCanvasElement, requestKey: () => void, onFrame = () => {}, onError = (_error: Error) => {},
   onDiagnostic: (level: 'info' | 'warn' | 'error', event: string, detail?: string) => void = () => {}) {
@@ -82,19 +85,23 @@ export class MediaPlayer {
   this.sequence = m.sequence;
   if (m.type === 2) {
    if (!this.firstVideoLogged) { this.firstVideoLogged = true; this.onDiagnostic('info', 'First video packet received', `keyframe ${m.flags === 1 ? 'yes' : 'no'}`); }
+   if (m.flags === 1 && this.loggedKeyFrameGeneration !== m.generation) {
+    this.loggedKeyFrameGeneration = m.generation;
+    this.onDiagnostic('info', 'H.264 keyframe structure', summarizeH264AccessUnit(m.payload, this.config.video.codec, true));
+   }
    if (this.video.decodeQueueSize >= 8) { this.recover(); return; }
    if (this.waitKey && m.flags !== 1) return;
    if (m.flags === 1) this.waitKey = false;
    if (this.video.state !== 'configured') { this.recover(); return; }
    try { this.video.decode(new EncodedVideoChunk({ type: m.flags === 1 ? 'key' : 'delta', timestamp: m.timestampUs,
-    duration: m.durationUs, data: m.payload.slice().buffer })); } catch (error) { this.recordDecoderError(error, "H.264"); this.recover(); }
+    duration: m.durationUs, data: m.payload.slice().buffer })); } catch (error) { this.recordDecoderError(error, 'H.264', 'decode() rejected chunk'); this.recover(); }
   } else if (m.type === 3 && !this.waitKey && this.audio) {
    if (this.audio.decodeQueueSize >= 32) { this.playback?.reset(); this.audio.reset();
     if (this.config.audio) this.audio.configure({ codec: 'opus', sampleRate: this.config.audio.sampleRate, numberOfChannels: this.config.audio.channels });
     return;
    }
    try { this.audio.decode(new EncodedAudioChunk({ type: 'key', timestamp: m.timestampUs, duration: m.durationUs, data: m.payload.slice().buffer })); }
-   catch (error) { this.recordDecoderError(error, "Opus"); this.recover(); }
+   catch (error) { this.recordDecoderError(error, 'Opus', 'decode() rejected packet'); this.recover(); }
   }
  }
  private configureDecoders(config: MediaConfiguration, epoch: number) {
@@ -105,14 +112,14 @@ export class MediaPlayer {
     if (epoch !== this.epoch || this.stopped) { frame.close(); return; }
     this.decodedFrames++; this.display(frame);
     if (!this.firstDecodedLogged) { this.firstDecodedLogged = true; this.onDiagnostic('info', 'First H.264 frame decoded'); }
-   }, error: error => { if (epoch === this.epoch) { this.recordDecoderError(error, "H.264"); this.recover(); } } });
+   }, error: error => { if (epoch === this.epoch) { this.recordDecoderError(error, 'H.264', 'decoder callback failed'); this.recover(); } } });
    this.video.configure(videoConfig);
    if (audioConfig) {
     this.playback ??= new AudioPlayback();
     this.audio = new AudioDecoder({ output: data => {
      if (epoch !== this.epoch || this.stopped) { data.close(); return; }
      try { this.playback!.push(data, this.time(data.timestamp)); } catch (error) { this.onError(error as Error); }
-    }, error: error => { if (epoch === this.epoch) { this.recordDecoderError(error, "Opus"); this.recover(); } } });
+    }, error: error => { if (epoch === this.epoch) { this.recordDecoderError(error, 'Opus', 'decoder callback failed'); this.recover(); } } });
     this.audio.configure(audioConfig);
    }
    else { this.playback?.close(); this.playback = undefined; }
@@ -140,12 +147,14 @@ export class MediaPlayer {
   }
   if (performance.now() - this.lastRequest >= 1000) { this.lastRequest = performance.now(); this.requestKey(); }
  }
- private recordDecoderError(error: unknown, codec: string) {
+ private recordDecoderError(error: unknown, codec: string, source: string) {
   this.decoderErrors++;
   const name = (error as { name?: unknown })?.name;
   const safeName = ['EncodingError', 'NotSupportedError', 'InvalidStateError', 'OperationError', 'DataError'].includes(String(name)) ? String(name) : 'DecoderError';
+  const decoderError = typeof error === 'object' && error !== null ? error as { name?: unknown; message?: unknown } : undefined;
+  const summary = safeErrorSummary({ name: decoderError?.name, message: decoderError?.message });
   this.lastDecoderError = `${codec} ${safeName}`;
-  this.onDiagnostic('error', `${codec} decoder error`, safeName);
+  this.onDiagnostic('error', `${codec} ${source}`, `${safeName}; ${summary}; generation ${this.generation}`);
  }
  startupFailure(): string {
   if (!this.configurations) return 'No media configuration received. Check the publisher WebSocket output and relay.';
