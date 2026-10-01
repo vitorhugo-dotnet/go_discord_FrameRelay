@@ -60,3 +60,11 @@ test('startup failure identifies decoded frames discarded by playback timing', a
  assert.match(p.startupFailure(), /discarded 1/);
  p.stop(); assert.equal(released, 2);
 });
+
+test('counts decoded frames cleared during recovery', async () => {
+ const p = player(); await p.accept(message(1, 0)); await p.accept(message(2, 1, 1));
+ let released = 0; outputs.output({ timestamp: 1_000_000, close() { released++; } });
+ p.recover();
+ assert.match(p.startupFailure(), /discarded 1/);
+ p.stop(); assert.equal(released, 1);
+});
