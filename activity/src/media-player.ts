@@ -19,6 +19,7 @@ export class MediaPlayer {
  video: VideoDecoder | undefined;
  private audio: AudioDecoder | undefined;
  private playback: AudioPlayback | undefined;
+ private volume = 1;
  private config: MediaConfiguration | undefined;
  private generation = 0;
  private sequence = 0;
@@ -116,6 +117,7 @@ export class MediaPlayer {
    this.video.configure(videoConfig);
    if (audioConfig) {
     this.playback ??= new AudioPlayback();
+    this.playback.setVolume(this.volume);
     this.audio = new AudioDecoder({ output: data => {
      if (epoch !== this.epoch || this.stopped) { data.close(); return; }
      try { this.playback!.push(data, this.time(data.timestamp)); } catch (error) { this.onError(error as Error); }
@@ -164,6 +166,10 @@ export class MediaPlayer {
   return `Media decoded ${this.decodedFrames} frames but playback did not render them (discarded ${this.discardedFrames}).${failure}`;
  }
  async resumeAudio() { await this.playback?.resume(); this.baseUs = undefined; }
+ setVolume(volume: number) {
+  this.volume = Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : this.volume;
+  this.playback?.setVolume(this.volume);
+ }
  get audioBlocked() { return !!this.playback && !this.playback.running; }
  stop() { this.stopped = true; this.epoch++; this.clearDecoders(); this.playback?.close(); this.playback = undefined; }
 }

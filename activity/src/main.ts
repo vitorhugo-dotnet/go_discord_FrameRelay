@@ -11,6 +11,11 @@ const canvas = document.querySelector<HTMLCanvasElement>('#screen')!;
 const status = document.querySelector<HTMLElement>('#status')!;
 const connect = document.querySelector<HTMLButtonElement>('#connect')!;
 const play = document.querySelector<HTMLButtonElement>('#play')!;
+const controls = document.querySelector<HTMLElement>('#controls')!;
+const hideControls = document.querySelector<HTMLButtonElement>('#hide-controls')!;
+const showControls = document.querySelector<HTMLButtonElement>('#show-controls')!;
+const mute = document.querySelector<HTMLButtonElement>('#mute')!;
+const volume = document.querySelector<HTMLInputElement>('#volume')!;
 const viewLogs = document.querySelector<HTMLButtonElement>('#view-logs')!;
 const logsDialog = document.querySelector<HTMLDialogElement>('#logs-dialog')!;
 const logsOutput = document.querySelector<HTMLElement>('#logs-output')!;
@@ -30,6 +35,8 @@ let retry: ReturnType<typeof setTimeout> | undefined;
 let retryDelay = 1000;
 let generation = 0;
 let identity: { accessToken: string; expiresAt: string } | undefined;
+let volumeLevel = 1;
+let muted = false;
 window.addEventListener('error', event => writeLog('error', 'Uncaught Activity error', safeErrorSummary(event.error ?? event.message)));
 window.addEventListener('unhandledrejection', event => writeLog('error', 'Unhandled Activity rejection', safeErrorSummary(event.reason)));
 viewLogs.addEventListener('click', () => { renderLogs(); logsDialog.showModal(); viewLogs.setAttribute('aria-expanded', 'true'); });
@@ -40,6 +47,22 @@ document.querySelector<HTMLButtonElement>('#copy-logs')!.addEventListener('click
  if (!navigator.clipboard?.writeText) { logsCopyStatus.textContent = 'Cópia indisponível; selecione o texto dos logs.'; return; }
  void navigator.clipboard.writeText(activityLogs.format()).then(() => { logsCopyStatus.textContent = 'Logs copiados.'; })
   .catch(() => { logsCopyStatus.textContent = 'Não foi possível copiar; selecione o texto dos logs.'; });
+});
+hideControls.addEventListener('click', () => { controls.hidden = true; showControls.hidden = false; });
+showControls.addEventListener('click', () => { controls.hidden = false; showControls.hidden = true; });
+mute.addEventListener('click', () => {
+ muted = !muted;
+ if (!muted && volumeLevel === 0) { volumeLevel = 0.5; volume.value = String(volumeLevel); }
+ player?.setVolume(muted ? 0 : volumeLevel);
+ mute.textContent = muted ? '🔇' : '🔊';
+ mute.setAttribute('aria-label', muted ? 'Unmute audio' : 'Mute audio');
+});
+volume.addEventListener('input', () => {
+ volumeLevel = Number(volume.value);
+ muted = volumeLevel === 0;
+ player?.setVolume(muted ? 0 : volumeLevel);
+ mute.textContent = muted ? '🔇' : '🔊';
+ mute.setAttribute('aria-label', muted ? 'Unmute audio' : 'Mute audio');
 });
 class UserError extends Error {}
 const messages: Record<string, string> = {
@@ -94,6 +117,7 @@ async function start() {
    status.textContent = 'Watching'; clearTimeout(timeout); retryDelay = 1000; play.hidden = !view.audioBlocked;
   }, error => { if (current === generation) fail(safeErrorSummary(error)); },
   (level, event, detail) => writeLog(level, event, detail));
+  view.setVolume(muted ? 0 : volumeLevel);
  media = client = new MediaClient(release, error => {
    if (current !== generation) return;
    fail(error.message);
