@@ -1,4 +1,4 @@
-module github.com/vitorhugo-dotnet/go_discord_FrameRelay
+module github.com/hugoalves-dev/go_discord_FrameRelay
 
 go 1.27.0
 

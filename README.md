@@ -47,7 +47,7 @@ The container runs as an unprivileged user. `/healthz` reports process health; `
 
 ## Deploy to a VPS
 
-The `CI` workflow runs formatting, vet, race-enabled tests, and a Go build on pull requests. A push to `main` publishes `ghcr.io/vitorhugo-dotnet/framerelay-discord-bot` with a commit tag and `latest`, then deploys it to the VPS over SSH. Manual workflow runs default to `deploy: false`; selecting `true` publishes and deploys that commit.
+The `CI` workflow runs formatting, vet, race-enabled tests, and a Go build on pull requests. A push to `main` publishes `ghcr.io/hugoalves-dev/framerelay-discord-bot` with a commit tag and `latest`, then deploys it to the VPS over SSH. Manual workflow runs default to `deploy: false`; selecting `true` publishes and deploys that commit.
 
 Before the first deploy:
 

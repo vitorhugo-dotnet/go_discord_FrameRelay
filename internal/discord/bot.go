@@ -16,7 +16,7 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
-	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/relaycontrol"
+	"github.com/hugoalves-dev/go_discord_FrameRelay/internal/relaycontrol"
 )
 
 type Adapter struct {

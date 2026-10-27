@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/relaycontrol"
+	"github.com/hugoalves-dev/go_discord_FrameRelay/internal/relaycontrol"
 )
 
 type Backend interface {

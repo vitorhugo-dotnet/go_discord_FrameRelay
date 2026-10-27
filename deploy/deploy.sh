@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/docker/frameRelayDiscordBot}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
-IMAGE="${IMAGE:-ghcr.io/vitorhugo-dotnet/framerelay-discord-bot:latest}"
+IMAGE="${IMAGE:-ghcr.io/hugoalves-dev/framerelay-discord-bot:latest}"
 
 cd "$APP_DIR"
 

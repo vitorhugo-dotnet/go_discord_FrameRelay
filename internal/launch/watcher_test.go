@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/relaycontrol"
+	"github.com/hugoalves-dev/go_discord_FrameRelay/internal/relaycontrol"
 )
 
 func TestPollPublishesReadySessionAndAcknowledgesIt(t *testing.T) {

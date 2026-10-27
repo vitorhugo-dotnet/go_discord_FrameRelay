@@ -1,6 +1,6 @@
 services:
   bot:
-    image: ${IMAGE:-ghcr.io/vitorhugo-dotnet/framerelay-discord-bot:latest}
+    image: ${IMAGE:-ghcr.io/hugoalves-dev/framerelay-discord-bot:latest}
     container_name: framerelay-discord-bot
     restart: unless-stopped
     env_file:

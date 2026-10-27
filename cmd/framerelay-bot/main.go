@@ -13,12 +13,12 @@ import (
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/gateway"
-	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/config"
-	discordbot "github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/discord"
-	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/health"
-	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/launch"
-	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/observability"
-	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/relaycontrol"
+	"github.com/hugoalves-dev/go_discord_FrameRelay/internal/config"
+	discordbot "github.com/hugoalves-dev/go_discord_FrameRelay/internal/discord"
+	"github.com/hugoalves-dev/go_discord_FrameRelay/internal/health"
+	"github.com/hugoalves-dev/go_discord_FrameRelay/internal/launch"
+	"github.com/hugoalves-dev/go_discord_FrameRelay/internal/observability"
+	"github.com/hugoalves-dev/go_discord_FrameRelay/internal/relaycontrol"
 )
 
 func main() {

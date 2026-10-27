@@ -9,7 +9,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
-	"github.com/vitorhugo-dotnet/go_discord_FrameRelay/internal/relaycontrol"
+	"github.com/hugoalves-dev/go_discord_FrameRelay/internal/relaycontrol"
 )
 
 type Backend interface {
